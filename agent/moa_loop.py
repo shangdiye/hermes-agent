@@ -648,7 +648,20 @@ def _run_references_parallel(
     try:
         for idx, slot in enumerate(reference_models):
             if slot.get("provider") == "moa":
+                # A skipped recursion-guard slot is still a *terminal* reference result:
+                # it always yields a placeholder, so it must advance fan-out progress
+                # exactly like a completed call. Without this, a mixed fan-out's
+                # refs_done never reaches total, the UI shows a permanently incomplete
+                # fan-out, and the turn's activity clock is never stamped for it —
+                # even though the aggregator proceeds with every slot.
                 results[idx] = _placeholder_output(slot, "[skipped: MoA presets cannot recursively reference MoA]")
+                completed += 1
+                _touch_fanout_progress(agent, f"MoA: {completed} of {total} references complete")
+                if progress_callback is not None:
+                    try:
+                        progress_callback(completed, total, _slot_label(slot))
+                    except Exception as exc:  # pragma: no cover - display must never break
+                        logger.debug("MoA progress_callback failed: %s", exc)
                 continue
             futures[
                 executor.submit(
